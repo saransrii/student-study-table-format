@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Study Planner — Animated</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* ---------- base ---------- */
+    :root{
+      --bg:#f5f7fb; --card:#ffffff; --accent:#2563eb; --muted:#6b7280;
+      --glass: rgba(255,255,255,0.65);
+    }
+    *{box-sizing:border-box}
+    body{font-family:Inter,system-ui,Arial;margin:0;background:linear-gradient(180deg,#f7fbff 0%,#f5f7fb 100%);color:#111;min-height:100vh}
+    .container{max-width:1000px;margin:28px auto;padding:20px;opacity:0;transform:translateY(8px);animation:fadeInUp .45s ease forwards}
+    @keyframes fadeInUp{to{opacity:1;transform:none}}
+
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{margin:0;font-size:1.4rem;display:flex;gap:8px;align-items:center}
+    .small{font-size:0.9rem;color:var(--muted)}
+
+    /* ---------- layout ---------- */
+    .grid{display:grid;gap:16px;grid-template-columns:1fr 380px}
+    .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 8px 30px rgba(15,23,42,0.06);transition:transform .22s ease,box-shadow .22s ease;opacity:0;transform:translateY(6px);animation:cardEnter .35s ease forwards}
+    .card:hover{transform:translateY(-6px);box-shadow:0 18px 40px rgba(15,23,42,0.09)}
+    @keyframes cardEnter{to{opacity:1;transform:none}}
+
+    form label{display:block;font-size:0.85rem;color:var(--muted);margin-top:8px}
+    input, select {width:100%;padding:10px;border-radius:8px;border:1px solid #e8eef8;margin-top:6px;outline:none;transition:box-shadow .18s,transform .12s}
+    input:focus, select:focus{box-shadow:0 6px 18px rgba(37,99,235,0.12);transform:translateY(-2px)}
+    button{background:var(--accent);color:white;padding:9px 14px;border:none;border-radius:10px;cursor:pointer;font-weight:600;letter-spacing:.2px;position:relative;overflow:hidden}
+    button:hover{transform:translateY(-3px)}
+    button:active{transform:translateY(-1px)}
+
+    /* ripple */
+    button::after{content:"";position:absolute;left:50%;top:50%;width:0;height:0;background:rgba(255,255,255,0.16);border-radius:50%;transform:translate(-50%,-50%);transition:width .5s ease,height .5s ease}
+    button:active::after{width:240px;height:240px;transition:0s}
+
+    .task{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9;opacity:1;transform:none;transition:opacity .25s,transform .22s}
+    .task .left{display:flex;gap:12px;align-items:center}
+    .pill{padding:5px 10px;border-radius:999px;font-size:0.75rem;background:#eef2ff;color:#1e40af}
+    .timetable{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+    .day{background:linear-gradient(180deg,#ffffff,#fbfdff);padding:10px;border-radius:10px;min-height:90px;transition:transform .14s,box-shadow .14s}
+    .day:hover{transform:translateY(-6px);box-shadow:0 12px 24px rgba(15,23,42,0.04)}
+    .slot{background:#fff;padding:6px;margin:6px 0;border-radius:8px;font-size:0.85rem;box-shadow:0 6px 14px rgba(11,17,27,0.03);transition:transform .14s,opacity .18s}
+    .slot:hover{transform:translateX(6px)}
+
+    /* add animation for new tasks */
+    .pop { animation:popIn .36s cubic-bezier(.2,.9,.3,1) }
+    @keyframes popIn { from {transform:scale(.92) translateY(6px);opacity:0} to {transform:none;opacity:1} }
+
+    /* remove animation */
+    .removing { animation:fadeOut .32s ease forwards }
+    @keyframes fadeOut { to {opacity:0;transform:translateX(12px) scale(.98)} }
+
+    /* quick stats */
+    #stats{display:flex;flex-direction:column;gap:10px}
+
+    /* progress canvas container */
+    canvas{width:100%!important;height:auto!important}
+
+    /* toast */
+    .toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:9999}
+    .toast{background:#0f172a;color:white;padding:10px 14px;border-radius:10px;box-shadow:0 10px 30px rgba(2,6,23,0.3);opacity:0;transform:translateY(8px) scale(.98);animation:toastIn .36s forwards}
+    @keyframes toastIn{to{opacity:1;transform:none}}
+    .toast.info{background:#0ea5e9}
+    .toast.warn{background:#f97316}
+
+    /* responsive */
+    @media (max-width:940px){ .grid{grid-template-columns:1fr} .container{padding:14px} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Study Planner 📚</h1>
+      <div class="small">Tasks, timetable & progress</div>
+    </header>
+
+    <div class="grid">
+      <!-- Left -->
+      <div>
+        <div class="card" id="addCard">
+          <h3>Add Task</h3>
+          <form id="taskForm">
+            <label>Title<input required id="title" placeholder="E.g., Physics — Chapter 5"></label>
+            <label>Subject<input id="subject" placeholder="E.g., Physics"></label>
+            <label>Estimated minutes<input id="minutes" type="number" min="5" value="30"></label>
+            <label>Priority
+              <select id="priority">
+                <option>Medium</option>
+                <option>High</option>
+                <option>Low</option>
+              </select>
+            </label>
+            <label>Due date (optional)<input id="dueDate" type="date"></label>
+            <label>Reminder (optional)<input id="reminder" type="datetime-local"></label>
+            <div style="margin-top:10px" class="controls">
+              <button type="submit">Add Task</button>
+              <button type="button" id="clearAll" style="background:#ef4444">Clear All</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Tasks</h3>
+          <div id="taskList"></div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Timetable (Weekly)</h3>
+          <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+            <select id="assignTaskSelect"><option value="">-- pick task to assign --</option></select>
+            <select id="daySelect">
+              <option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
+            </select>
+            <input id="slotInput" placeholder="e.g., 6-7pm">
+            <button id="assignBtn">Assign</button>
+          </div>
+          <div class="timetable" id="timetable">
+            <div class="day"><strong>Mon</strong><div class="slots" data-day="Monday"></div></div>
+            <div class="day"><strong>Tue</strong><div class="slots" data-day="Tuesday"></div></div>
+            <div class="day"><strong>Wed</strong><div class="slots" data-day="Wednesday"></div></div>
+            <div class="day"><strong>Thu</strong><div class="slots" data-day="Thursday"></div></div>
+            <div class="day"><strong>Fri</strong><div class="slots" data-day="Friday"></div></div>
+            <div class="day"><strong>Sat</strong><div class="slots" data-day="Saturday"></div></div>
+            <div class="day"><strong>Sun</strong><div class="slots" data-day="Sunday"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right -->
+      <div>
+        <div class="card">
+          <h3>Progress (Last 7 days)</h3>
+          <canvas id="progressChart" width="300" height="220"></canvas>
+          <div style="margin-top:10px" class="small">Completed tasks vs Total</div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Quick Stats</h3>
+          <div id="stats" style="display:flex;flex-direction:column;gap:8px">
+            <div class="small">Total tasks: <strong id="totalTasks">0</strong></div>
+            <div class="small">Completed: <strong id="completedTasks">0</strong></div>
+            <div class="small">Pending: <strong id="pendingTasks">0</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- toasts -->
+  <div class="toasts" id="toasts"></div>
+
+<script>
+/* ---------- storage & utils ---------- */
+const TASK_KEY = "sp_tasks_v1";
+const TT_KEY = "sp_timetable_v1";
+function loadTasks(){ try { return JSON.parse(localStorage.getItem(TASK_KEY) || "[]"); } catch(e){return [];} }
+function saveTasks(tasks){ localStorage.setItem(TASK_KEY, JSON.stringify(tasks)); }
+function loadTimetable(){ try { return JSON.parse(localStorage.getItem(TT_KEY) || "{}"); } catch(e){return {};} }
+function saveTimetable(tt){ localStorage.setItem(TT_KEY, JSON.stringify(tt)); }
+
+function uid(){ return "t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function el(q){ return document.querySelector(q); }
+
+/* ---------- UI binding ---------- */
+const taskForm = el("#taskForm");
+const taskList = el("#taskList");
+const assignSelect = el("#assignTaskSelect");
+const daySelect = el("#daySelect");
+const slotInput = el("#slotInput");
+const assignBtn = el("#assignBtn");
+const statsTotal = el("#totalTasks");
+const statsCompleted = el("#completedTasks");
+const statsPending = el("#pendingTasks");
+const toasts = el("#toasts");
+
+let chart = null;
+
+/* ---------- toast helper ---------- */
+function toast(msg, type="info", ms=3000){
+  const t = document.createElement("div");
+  t.className = "toast " + (type==="warn" ? "warn" : "info");
+  t.textContent = msg;
+  toasts.appendChild(t);
+  setTimeout(()=> t.classList.add("hide"), ms-300);
+  setTimeout(()=> t.remove(), ms);
+}
+
+/* ---------- stats counter animation ---------- */
+function animateNumber(elm, from, to, duration=500){
+  const start = performance.now();
+  const tick = (now)=>{
+    const p = Math.min(1,(now-start)/duration);
+    const val = Math.round(from + (to-from) * p);
+    elm.textContent = val;
+    if(p<1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+/* ---------- tasks rendering & behavior ---------- */
+function renderTasks(){
+  const tasks = loadTasks();
+  taskList.innerHTML = "";
+  assignSelect.innerHTML = '<option value="">-- pick task to assign --</option>';
+  tasks.forEach(t => {
+    const d = document.createElement("div");
+    d.className = "task pop";
+    d.dataset.id = t.id;
+    d.innerHTML = `
+      <div class="left">
+        <input type="checkbox" data-id="${t.id}" ${t.completed ? "checked":""}>
+        <div>
+          <div><strong>${t.title}</strong> <span class="pill">${t.priority}</span></div>
+          <div class="small">${t.subject || ""} • ${t.estMinutes} min ${t.dueDate ? "• due "+t.dueDate : ""}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button data-action="edit" data-id="${t.id}" style="background:#f59e0b">Edit</button>
+        <button data-action="del" data-id="${t.id}" style="background:#ef4444">Delete</button>
+      </div>
+    `;
+    // append then remove 'pop' class after animation so next adds animate too
+    taskList.appendChild(d);
+    setTimeout(()=> d.classList.remove("pop"),380);
+
+    // add to assign select
+    const opt = document.createElement("option");
+    opt.value = t.id; opt.textContent = t.title;
+    assignSelect.appendChild(opt);
+  });
+
+  // checkbox listeners
+  taskList.querySelectorAll('input[type="checkbox"]').forEach(cb=>{
+    cb.addEventListener("change", (e)=>{
+      const id = e.target.dataset.id;
+      toggleComplete(id, e.target.checked);
+    });
+  });
+
+  // edit/delete
+  taskList.querySelectorAll("button").forEach(btn=>{
+    btn.addEventListener("click",(ev)=>{
+      const id = ev.target.dataset.id;
+      const action = ev.target.dataset.action;
+      if(action==="del") removeTaskAnimated(id);
+      else if(action==="edit") editTask(id);
+    });
+  });
+
+  updateStats();
+  renderTimetable();
+  updateChart();
+}
+
+/* ---------- add / remove / edit ---------- */
+function addTask(obj){
+  const tasks = loadTasks();
+  tasks.unshift(obj);
+  saveTasks(tasks);
+  renderTasks();
+  scheduleReminderIfAny(obj);
+  toast("Task added: " + obj.title, "info", 2500);
+}
+
+function removeTaskAnimated(id){
+  // animate remove, then update storage and UI
+  const elNode = taskList.querySelector(`.task[data-id="${id}"]`);
+  if(elNode){
+    elNode.classList.add("removing");
+    setTimeout(()=> {
+      removeTask(id);
+      toast("Task deleted", "warn", 2000);
+    }, 320);
+  } else {
+    removeTask(id);
+  }
+}
+
+function removeTask(id){
+  let tasks = loadTasks();
+  tasks = tasks.filter(t=>t.id!==id);
+  saveTasks(tasks);
+  // remove from timetable too
+  const tt = loadTimetable();
+  for(const day in tt){
+    tt[day] = tt[day].filter(s => s.taskId !== id);
+  }
+  saveTimetable(tt);
+  renderTasks();
+}
+
+function editTask(id){
+  const tasks = loadTasks();
+  const t = tasks.find(x=>x.id===id);
+  if(!t) return;
+  const newTitle = prompt("Edit title", t.title);
+  if(newTitle===null) return;
+  t.title = newTitle;
+  saveTasks(tasks);
+  renderTasks();
+  toast("Task updated", "info", 1600);
+}
+
+function toggleComplete(id, done){
+  const tasks = loadTasks();
+  const t = tasks.find(x=>x.id===id);
+  if(!t) return;
+  t.completed = !!done;
+  t.completedAt = t.completed ? new Date().toISOString() : null;
+  saveTasks(tasks);
+  renderTasks();
+}
+
+/* ---------- form handling ---------- */
+taskForm.addEventListener("submit", (e)=>{
+  e.preventDefault();
+  const title = el("#title").value.trim();
+  if(!title) return alert("Enter title");
+  const t = {
+    id: uid(),
+    title,
+    subject: el("#subject").value.trim(),
+    estMinutes: parseInt(el("#minutes").value) || 30,
+    priority: el("#priority").value,
+    dueDate: el("#dueDate").value || null,
+    reminderAt: el("#reminder").value || null,
+    completed: false,
+    createdAt: new Date().toISOString()
+  };
+  addTask(t);
+  taskForm.reset();
+});
+
+/* ---------- timetable ---------- */
+assignBtn.addEventListener("click", ()=>{
+  const taskId = assignSelect.value;
+  const day = daySelect.value;
+  const slot = slotInput.value.trim();
+  if(!taskId || !slot) return alert("Pick task and slot");
+  const tt = loadTimetable();
+  tt[day] = tt[day] || [];
+  tt[day].push({taskId,slot});
+  saveTimetable(tt);
+  slotInput.value = "";
+  renderTimetable();
+  toast("Assigned to " + day + " • " + slot, "info", 1400);
+});
+
+function renderTimetable(){
+  const tt = loadTimetable();
+  document.querySelectorAll(".slots").forEach(container=>{
+    const day = container.dataset.day;
+    container.innerHTML = "";
+    const arr = (tt[day] || []);
+    arr.forEach(s=>{
+      const task = loadTasks().find(t=>t.id===s.taskId);
+      const div = document.createElement("div");
+      div.className = "slot";
+      div.textContent = (task ? task.title : "Task removed") + " • " + s.slot;
+      container.appendChild(div);
+    });
+  });
+}
+
+/* ---------- stats & chart ---------- */
+function updateStats(){
+  const tasks = loadTasks();
+  const total = tasks.length;
+  const completed = tasks.filter(t=>t.completed).length;
+  // animate numbers
+  animateNumber(statsTotal, Number(statsTotal.textContent||0), total, 420);
+  animateNumber(statsCompleted, Number(statsCompleted.textContent||0), completed, 420);
+  animateNumber(statsPending, Number(statsPending.textContent||0), total - completed, 420);
+}
+
+function getLast7DaysCounts(){
+  const tasks = loadTasks();
+  const res = [];
+  for(let i=6;i>=0;i--){
+    const d = new Date(); d.setDate(d.getDate()-i);
+    const key = d.toISOString().slice(0,10);
+    const dayTasks = tasks.filter(t => t.createdAt.slice(0,10) === key || (t.completedAt && t.completedAt.slice(0,10)===key));
+    const total = dayTasks.length;
+    const completed = dayTasks.filter(t => t.completedAt && t.completedAt.slice(0,10)===key).length;
+    res.push({date:key, total, completed});
+  }
+  return res;
+}
+
+function updateChart(){
+  const ctx = document.getElementById('progressChart').getContext('2d');
+  const data = getLast7DaysCounts();
+  const labels = data.map(d => d.date.slice(5));
+  const totals = data.map(d => d.total);
+  const comps = data.map(d => d.completed);
+
+  const datasetTotal = {label:'Total', data:totals, fill:false, tension:0.3, borderWidth:2};
+  const datasetComp = {label:'Completed', data:comps, fill:false, tension:0.3, borderWidth:2};
+
+  if(chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {labels, datasets:[datasetTotal, datasetComp]},
+    options: {
+      responsive:true,
+      animation:{duration:700,easing:'easeOutCubic'},
+      plugins:{legend:{position:'bottom'}},
+      scales:{y:{beginAtZero:true,precision:0}}
+    }
+  });
+}
+
+/* ---------- reminders ---------- */
+function scheduleReminderIfAny(task){
+  if(!task.reminderAt) return;
+  try {
+    const when = new Date(task.reminderAt).getTime();
+    const now = Date.now();
+    const diff = when - now;
+    if(diff <= 0) return;
+    setTimeout(()=> {
+      if(Notification && Notification.permission==="granted"){
+        new Notification("Study Reminder", {body: task.title});
+      } else {
+        toast("Reminder: " + task.title, "info", 4000);
+      }
+    }, diff);
+  } catch(e){}
+}
+function scheduleAllReminders(){
+  const tasks = loadTasks();
+  tasks.forEach(t => scheduleReminderIfAny(t));
+}
+
+/* ---------- clear all ---------- */
+el("#clearAll").addEventListener("click", ()=>{
+  if(!confirm("Clear all tasks & timetable?")) return;
+  localStorage.removeItem(TASK_KEY);
+  localStorage.removeItem(TT_KEY);
+  renderTasks();
+  toast("All cleared", "warn", 1300);
+});
+
+/* ---------- init ---------- */
+function init(){
+  if(loadTasks().length===0){
+    addTask({ id:uid(), title:"Sample: Revise Maths", subject:"Math", estMinutes:40, priority:"High", completed:false, createdAt:new Date().toISOString() });
+  } else renderTasks();
+  scheduleAllReminders();
+  if("Notification" in window && Notification.permission !== "granted"){
+    Notification.requestPermission().then(()=>{});
+  }
+}
+init();
+
+</script>
+</body>
+</html>
